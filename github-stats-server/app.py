@@ -244,12 +244,28 @@ def analyze_repository(repo_path):
                     # 文件类型统计（用于显示分布）
                     stats['file_type_stats'][file_type] += lines
                     
-                    # 文件夹统计
+                    # 文件夹统计 - 累加到所有父级文件夹
                     folder = os.path.dirname(relative_path) or '.'
-                    if folder not in stats['folder_stats']:
-                        stats['folder_stats'][folder] = {'lines': 0, 'files': 0}
-                    stats['folder_stats'][folder]['lines'] += lines
-                    stats['folder_stats'][folder]['files'] += 1
+                    
+                    # 创建所有父级文件夹的路径列表
+                    folder_paths = []
+                    current_path = folder
+                    while current_path and current_path != '.':
+                        folder_paths.append(current_path)
+                        parent = os.path.dirname(current_path)
+                        if parent == current_path:  # 到达根目录
+                            break
+                        current_path = parent
+                    
+                    # 添加根目录
+                    folder_paths.append('.')
+                    
+                    # 将文件统计累加到所有父级文件夹
+                    for folder_path in folder_paths:
+                        if folder_path not in stats['folder_stats']:
+                            stats['folder_stats'][folder_path] = {'lines': 0, 'files': 0}
+                        stats['folder_stats'][folder_path]['lines'] += lines
+                        stats['folder_stats'][folder_path]['files'] += 1
     
     # 计算百分比
     if stats['total_lines'] > 0:
