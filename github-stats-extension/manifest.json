@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub Repository Statistics",
+  "version": "1.0",
+  "description": "统计GitHub仓库代码行数并显示详细分析",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://localhost/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GitHub代码统计设置"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

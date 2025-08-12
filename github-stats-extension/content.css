@@ -1,0 +1,90 @@
+.github-stats-float {
+  position: fixed;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+  z-index: 10000;
+  background: #ffffff;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+  padding: 12px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 160px;
+  max-width: 250px;
+}
+
+.github-stats-float:hover {
+  transform: translateY(-50%) scale(1.02);
+  box-shadow: 0 12px 32px rgba(140, 149, 159, 0.3);
+  border-color: #0969da;
+}
+
+.github-stats-float .title {
+  font-weight: 600;
+  color: #24292f;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.github-stats-float .icon {
+  width: 16px;
+  height: 16px;
+  background: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="%230969da"><path d="M8.5 1.5L15 8l-6.5 6.5-1-1L12.793 8 7.5 2.707l1-1z"/></svg>') no-repeat center;
+  background-size: contain;
+}
+
+.github-stats-float .stats {
+  color: #656d76;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.github-stats-float .loading {
+  color: #0969da;
+  font-style: italic;
+}
+
+.github-stats-float .error {
+  color: #d1242f;
+  font-size: 12px;
+}
+
+.github-stats-float .lines-count {
+  font-weight: 600;
+  color: #0969da;
+  font-size: 16px;
+}
+
+.github-stats-float .click-hint {
+  font-size: 11px;
+  color: #8b949e;
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* 动画效果 */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
+.github-stats-float.animate-in {
+  animation: slideInRight 0.3s ease-out;
+}
+
+/* 隐藏状态 */
+.github-stats-float.hidden {
+  display: none;
+}
