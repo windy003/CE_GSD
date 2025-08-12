@@ -174,6 +174,7 @@ class GitHubStatsWidget {
     }
 
     try {
+      // 第一次请求
       const response = await fetch(`${this.serverUrl}/api/stats`, {
         method: 'POST',
         headers: {
@@ -191,12 +192,68 @@ class GitHubStatsWidget {
       }
 
       const data = await response.json();
-      this.updateWidgetContent('success', data);
+      
+      // 检查是否正在处理中
+      if (data.processing) {
+        console.log('Data is processing, will poll for updates...');
+        this.updateWidgetContent('loading');
+        this.pollForStats();
+      } else {
+        this.updateWidgetContent('success', data);
+      }
       
     } catch (error) {
       console.error('Failed to fetch stats:', error);
       this.updateWidgetContent('error', '连接服务器失败');
     }
+  }
+
+  async pollForStats() {
+    if (!this.serverUrl || !this.currentRepo) {
+      return;
+    }
+
+    const maxAttempts = 30; // 最多尝试30次 (约5分钟)
+    let attempts = 0;
+
+    const poll = async () => {
+      attempts++;
+      
+      try {
+        const response = await fetch(
+          `${this.serverUrl}/api/stats/status/${this.currentRepo.owner}/${this.currentRepo.repo}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.ready) {
+          console.log('Stats ready:', data);
+          this.updateWidgetContent('success', data);
+        } else if (attempts < maxAttempts) {
+          // 继续轮询，间隔逐渐增加
+          const delay = Math.min(2000 + attempts * 500, 10000); // 2-10秒间隔
+          setTimeout(poll, delay);
+        } else {
+          // 超时
+          this.updateWidgetContent('error', '统计超时，请稍后重试');
+        }
+        
+      } catch (error) {
+        console.error('Polling failed:', error);
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 5000); // 5秒后重试
+        } else {
+          this.updateWidgetContent('error', '获取统计失败');
+        }
+      }
+    };
+
+    // 开始轮询
+    setTimeout(poll, 2000); // 2秒后开始第一次轮询
   }
 
   openStatsPage() {

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(curl:*)",
+      "Bash(start http://localhost:5000/test.html)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -217,7 +217,7 @@ def analyze_repository(repo_path):
         
         for file in files:
             file_path = os.path.join(root, file)
-            relative_path = os.path.relpath(file_path, repo_path)
+            relative_path = os.path.relpath(file_path, repo_path).replace('\\', '/')
             
             # 跳过隐藏文件，但保留重要文件
             if file.startswith('.'):
@@ -265,6 +265,13 @@ def analyze_repository(repo_path):
 def health_check():
     """健康检查接口"""
     return jsonify({'status': 'ok', 'message': 'GitHub Stats Server is running'})
+
+@app.route('/test.html')
+def test_page():
+    """测试页面"""
+    import os
+    with open(os.path.join(os.path.dirname(__file__), 'test.html'), 'r', encoding='utf-8') as f:
+        return f.read()
 
 @app.route('/api/stats', methods=['POST'])
 def get_repository_stats():
@@ -393,8 +400,14 @@ def stats_page():
             return render_template_string(ERROR_TEMPLATE, 
                                         owner=owner, repo=repo, error=stats['error'])
     
+    # 将stats转换为Base64编码的JSON，避免转义问题
+    import json
+    import base64
+    stats_json = json.dumps(stats, ensure_ascii=True, separators=(',', ':'))
+    stats_b64 = base64.b64encode(stats_json.encode('utf-8')).decode('ascii')
+    
     return render_template_string(STATS_TEMPLATE, 
-                                owner=owner, repo=repo, stats=stats)
+                                owner=owner, repo=repo, stats=stats, stats_b64=stats_b64)
 
 # HTML模板
 LOADING_TEMPLATE = '''
@@ -486,11 +499,14 @@ STATS_TEMPLATE = '''
         .folder-icon, .file-icon { width: 16px; height: 16px; }
         .folder-icon::before { content: "📁"; }
         .file-icon::before { content: "📄"; }
-        .collapsible-content { display: none; background: #f8f9fa; }
-        .collapsible-content.show { display: block; }
-        .nested-item { padding-left: 40px; }
-        .toggle-icon { transition: transform 0.2s; }
-        .toggle-icon.rotated { transform: rotate(90deg); }
+        .breadcrumb { padding: 15px 20px; background: #f6f8fa; border-bottom: 1px solid #e1e4e8; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+        .breadcrumb a { color: #0969da; text-decoration: none; cursor: pointer; }
+        .breadcrumb a:hover { text-decoration: underline; }
+        .breadcrumb span { color: #656d76; margin: 0 5px; }
+        .file-list { min-height: 400px; }
+        .back-button { padding: 15px 20px; border-bottom: 1px solid #e1e4e8; background: #f6f8fa; cursor: pointer; transition: background 0.2s; }
+        .back-button:hover { background: #e1e4e8; }
+        .back-button .item-name { color: #0969da; font-weight: 500; }
         .progress-bar { width: 100px; height: 6px; background: #e1e4e8; border-radius: 3px; overflow: hidden; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, #0969da, #54aeff); border-radius: 3px; transition: width 0.3s; }
         .language-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 20px; }
@@ -541,60 +557,209 @@ STATS_TEMPLATE = '''
 
         <div class="section">
             <div class="section-header">
-                <h2>文件夹统计</h2>
+                <h2>文件浏览器</h2>
             </div>
             <div class="section-content">
-                {% for folder, info in stats.folder_stats.items() %}
-                <div class="folder-item" onclick="toggleFolder('folder-{{ loop.index }}')">
-                    <div class="item-name">
-                        <span class="toggle-icon" id="toggle-folder-{{ loop.index }}">▶</span>
-                        <span class="folder-icon"></span>
-                        <span>{{ folder }}</span>
-                    </div>
-                    <div class="item-stats">
-                        <span class="lines-count">{{ "{:,}".format(info.lines) }} 行</span>
-                        <span class="percentage">{{ "%.1f"|format(info.percentage) }}%</span>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: {{ info.percentage }}%"></div>
-                        </div>
-                    </div>
+                <div class="breadcrumb" id="breadcrumb">
+                    <a onclick="navigateToFolder('')">根目录</a>
                 </div>
-                <div class="collapsible-content" id="folder-{{ loop.index }}">
-                    {% for file_path, file_info in stats.file_stats.items() %}
-                        {% if file_path.startswith(folder + '/') or (folder == '.' and '/' not in file_path) %}
-                        <div class="file-item nested-item">
-                            <div class="item-name">
-                                <span class="file-icon"></span>
-                                <span>{{ file_path.split('/')[-1] }}</span>
-                            </div>
-                            <div class="item-stats">
-                                <span class="lines-count">{{ "{:,}".format(file_info.lines) }} 行</span>
-                                <span class="percentage">{{ "%.1f"|format(file_info.percentage) }}%</span>
-                                <div class="progress-bar">
-                                    <div class="progress-fill" style="width: {{ file_info.percentage }}%"></div>
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
-                    {% endfor %}
+                <div class="file-list" id="fileList">
+                    <!-- 文件列表将通过JavaScript动态生成 -->
                 </div>
-                {% endfor %}
             </div>
         </div>
     </div>
+    
+    <!-- 数据传递 - 使用Base64编码避免转义问题 -->
+    <script type="text/plain" id="stats-data">{{ stats_b64 }}</script>
 
     <script>
-        function toggleFolder(folderId) {
-            const content = document.getElementById(folderId);
-            const toggle = document.getElementById('toggle-' + folderId);
-            
-            if (content.classList.contains('show')) {
-                content.classList.remove('show');
-                toggle.classList.remove('rotated');
-            } else {
-                content.classList.add('show');
-                toggle.classList.add('rotated');
+        // 全局变量
+        let currentFolder = '';
+        let fileData = {};
+        let folderData = {};
+        
+        // 初始化数据 - 从Base64解码
+        let stats;
+        try {
+            const statsElement = document.getElementById('stats-data');
+            if (!statsElement) {
+                throw new Error('找不到stats-data元素');
             }
+            const statsB64 = statsElement.textContent.trim();
+            if (!statsB64) {
+                throw new Error('stats-data为空');
+            }
+            // Base64解码
+            const statsJson = atob(statsB64);
+            stats = JSON.parse(statsJson);
+            console.log('Base64数据解析成功:', stats);
+        } catch (error) {
+            console.error('数据解析失败:', error);
+            // 设置默认空数据
+            stats = { file_stats: {}, folder_stats: {}, file_type_stats: {} };
+        }
+        
+        // 组织文件和文件夹数据
+        function initializeData() {
+            console.log('初始化数据', stats);
+            
+            // 处理文件数据
+            for (const [filePath, fileInfo] of Object.entries(stats.file_stats || {})) {
+                const pathParts = filePath.split('/');
+                const fileName = pathParts[pathParts.length - 1];
+                const dirPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
+                
+                if (!fileData[dirPath]) {
+                    fileData[dirPath] = [];
+                }
+                
+                fileData[dirPath].push({
+                    name: fileName,
+                    path: filePath,
+                    lines: fileInfo.lines,
+                    percentage: fileInfo.percentage,
+                    type: 'file'
+                });
+            }
+            
+            // 处理文件夹数据 - 创建层级结构
+            const allFolders = new Set();
+            
+            // 先收集所有可能的文件夹路径
+            for (const [filePath, fileInfo] of Object.entries(stats.file_stats || {})) {
+                const pathParts = filePath.split('/');
+                if (pathParts.length > 1) {
+                    // 为文件路径创建所有父级目录
+                    for (let i = 1; i < pathParts.length; i++) {
+                        const folderPath = pathParts.slice(0, i).join('/');
+                        allFolders.add(folderPath);
+                    }
+                }
+            }
+            
+            // 处理已有的文件夹统计数据
+            for (const [folderPath, folderInfo] of Object.entries(stats.folder_stats || {})) {
+                if (folderPath === '.') {
+                    // 处理根目录的文件
+                    continue;
+                }
+                allFolders.add(folderPath);
+            }
+            
+            // 为每个文件夹创建条目
+            for (const folderPath of allFolders) {
+                const pathParts = folderPath.split('/');
+                const folderName = pathParts[pathParts.length - 1];
+                const parentPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
+                
+                if (!folderData[parentPath]) {
+                    folderData[parentPath] = [];
+                }
+                
+                // 使用统计数据或默认值
+                const folderInfo = stats.folder_stats[folderPath] || { lines: 0, files: 0, percentage: 0 };
+                
+                folderData[parentPath].push({
+                    name: folderName,
+                    path: folderPath,
+                    lines: folderInfo.lines || 0,
+                    percentage: folderInfo.percentage || 0,
+                    files: folderInfo.files || 0,
+                    type: 'folder'
+                });
+            }
+            
+            // 对所有数据按名称排序，文件夹在前
+            for (const path in folderData) {
+                folderData[path].sort((a, b) => a.name.localeCompare(b.name));
+            }
+            for (const path in fileData) {
+                fileData[path].sort((a, b) => a.name.localeCompare(b.name));
+            }
+            
+            console.log('文件数据:', fileData);
+            console.log('文件夹数据:', folderData);
+        }
+        
+        // 导航到指定文件夹
+        function navigateToFolder(folderPath) {
+            currentFolder = folderPath;
+            updateBreadcrumb();
+            renderFileList();
+        }
+        
+        // 更新面包屑导航
+        function updateBreadcrumb() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            let html = '<a onclick="navigateToFolder(\\'\\')">根目录</a>';
+            
+            if (currentFolder) {
+                const pathParts = currentFolder.split('/');
+                let currentPath = '';
+                
+                for (let i = 0; i < pathParts.length; i++) {
+                    currentPath += (i > 0 ? '/' : '') + pathParts[i];
+                    html += ' <span>/</span> ';
+                    html += '<a onclick="navigateToFolder(\\'' + currentPath + '\\')">' + pathParts[i] + '</a>';
+                }
+            }
+            
+            breadcrumb.innerHTML = html;
+        }
+        
+        // 渲染文件列表
+        function renderFileList() {
+            const fileList = document.getElementById('fileList');
+            let html = '';
+            
+            // 添加返回上级目录按钮（如果不在根目录）
+            if (currentFolder) {
+                const parentFolder = currentFolder.includes('/') 
+                    ? currentFolder.substring(0, currentFolder.lastIndexOf('/'))
+                    : '';
+                    
+                html += '<div class="back-button" onclick="navigateToFolder(\\'' + parentFolder + '\\')"><div class="item-name"><span>🔙</span><span>返回上级目录</span></div></div>';
+            }
+            
+            // 显示当前目录下的文件夹
+            const currentFolders = folderData[currentFolder] || [];
+            for (const folder of currentFolders) {
+                html += '<div class="folder-item" onclick="navigateToFolder(\\'' + folder.path + '\\')"><div class="item-name"><span class="folder-icon"></span><span>' + folder.name + '</span></div><div class="item-stats"><span class="lines-count">' + folder.lines.toLocaleString() + ' 行</span><span class="percentage">' + folder.percentage.toFixed(1) + '%</span><div class="progress-bar"><div class="progress-fill" style="width: ' + folder.percentage + '%"></div></div></div></div>';
+            }
+            
+            // 显示当前目录下的文件
+            const currentFiles = fileData[currentFolder] || [];
+            for (const file of currentFiles) {
+                html += '<div class="file-item"><div class="item-name"><span class="file-icon"></span><span>' + file.name + '</span></div><div class="item-stats"><span class="lines-count">' + file.lines.toLocaleString() + ' 行</span><span class="percentage">' + file.percentage.toFixed(1) + '%</span><div class="progress-bar"><div class="progress-fill" style="width: ' + file.percentage + '%"></div></div></div></div>';
+            }
+            
+            // 如果目录为空
+            if (currentFolders.length === 0 && currentFiles.length === 0) {
+                html += '<div class="file-item"><div class="item-name" style="color: #656d76; font-style: italic;"><span>📭</span><span>此目录为空</span></div></div>';
+            }
+            
+            fileList.innerHTML = html;
+        }
+        
+        // 页面加载完成后初始化
+        function initializePage() {
+            console.log('开始初始化页面...');
+            try {
+                initializeData();
+                navigateToFolder('');
+                console.log('页面初始化完成');
+            } catch (error) {
+                console.error('初始化出错:', error);
+            }
+        }
+        
+        // 确保在页面加载完成后执行
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializePage);
+        } else {
+            // DOM已经加载完成，立即执行
+            initializePage();
         }
     </script>
 </body>

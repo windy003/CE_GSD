@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Test File Browser</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .breadcrumb { padding: 10px; background: #f0f0f0; margin-bottom: 10px; }
+        .breadcrumb a { color: blue; cursor: pointer; text-decoration: underline; }
+        .file-list { border: 1px solid #ccc; min-height: 300px; }
+        .folder-item, .file-item, .back-button { 
+            padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; 
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .folder-item:hover, .file-item:hover, .back-button:hover { background: #f0f0f0; }
+        .item-name { display: flex; align-items: center; gap: 8px; }
+        .item-stats { font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>文件浏览器测试</h1>
+    
+    <div class="breadcrumb" id="breadcrumb">
+        <a onclick="navigateToFolder('')">根目录</a>
+    </div>
+    
+    <div class="file-list" id="fileList">
+        <!-- 文件列表 -->
+    </div>
+    
+    <script>
+        // 测试数据
+        const testStats = {
+            "file_stats": {
+                "README.md": {"lines": 169, "percentage": 4.64},
+                "build.gradle.kts": {"lines": 5, "percentage": 0.14},
+                "app/MainActivity.kt": {"lines": 554, "percentage": 15.22},
+                "app/PlayerActivity.kt": {"lines": 552, "percentage": 15.17},
+                "app/src/main/AndroidManifest.xml": {"lines": 73, "percentage": 2.01}
+            },
+            "folder_stats": {
+                ".": {"lines": 567, "files": 7, "percentage": 15.58},
+                "app": {"lines": 107, "files": 2, "percentage": 2.94},
+                "app/src": {"lines": 200, "files": 3, "percentage": 5.50},
+                "app/src/main": {"lines": 73, "files": 1, "percentage": 2.01}
+            }
+        };
+        
+        // 全局变量
+        let currentFolder = '';
+        let fileData = {};
+        let folderData = {};
+        
+        // 组织文件和文件夹数据
+        function initializeData() {
+            console.log('初始化数据', testStats);
+            
+            // 处理文件数据
+            for (const [filePath, fileInfo] of Object.entries(testStats.file_stats || {})) {
+                const pathParts = filePath.split('/');
+                const fileName = pathParts[pathParts.length - 1];
+                const dirPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
+                
+                if (!fileData[dirPath]) {
+                    fileData[dirPath] = [];
+                }
+                
+                fileData[dirPath].push({
+                    name: fileName,
+                    path: filePath,
+                    lines: fileInfo.lines,
+                    percentage: fileInfo.percentage,
+                    type: 'file'
+                });
+            }
+            
+            // 处理文件夹数据 - 创建层级结构
+            const allFolders = new Set();
+            
+            // 先收集所有可能的文件夹路径
+            for (const [filePath, fileInfo] of Object.entries(testStats.file_stats || {})) {
+                const pathParts = filePath.split('/');
+                if (pathParts.length > 1) {
+                    // 为文件路径创建所有父级目录
+                    for (let i = 1; i < pathParts.length; i++) {
+                        const folderPath = pathParts.slice(0, i).join('/');
+                        allFolders.add(folderPath);
+                    }
+                }
+            }
+            
+            // 处理已有的文件夹统计数据
+            for (const [folderPath, folderInfo] of Object.entries(testStats.folder_stats || {})) {
+                if (folderPath === '.') {
+                    continue;
+                }
+                allFolders.add(folderPath);
+            }
+            
+            // 为每个文件夹创建条目
+            for (const folderPath of allFolders) {
+                const pathParts = folderPath.split('/');
+                const folderName = pathParts[pathParts.length - 1];
+                const parentPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : '';
+                
+                if (!folderData[parentPath]) {
+                    folderData[parentPath] = [];
+                }
+                
+                // 使用统计数据或默认值
+                const folderInfo = testStats.folder_stats[folderPath] || { lines: 0, files: 0, percentage: 0 };
+                
+                folderData[parentPath].push({
+                    name: folderName,
+                    path: folderPath,
+                    lines: folderInfo.lines || 0,
+                    percentage: folderInfo.percentage || 0,
+                    files: folderInfo.files || 0,
+                    type: 'folder'
+                });
+            }
+            
+            // 对所有数据按名称排序
+            for (const path in folderData) {
+                folderData[path].sort((a, b) => a.name.localeCompare(b.name));
+            }
+            for (const path in fileData) {
+                fileData[path].sort((a, b) => a.name.localeCompare(b.name));
+            }
+            
+            console.log('文件数据:', fileData);
+            console.log('文件夹数据:', folderData);
+        }
+        
+        // 导航到指定文件夹
+        function navigateToFolder(folderPath) {
+            currentFolder = folderPath;
+            updateBreadcrumb();
+            renderFileList();
+        }
+        
+        // 更新面包屑导航
+        function updateBreadcrumb() {
+            const breadcrumb = document.getElementById('breadcrumb');
+            let html = '<a onclick="navigateToFolder(\'\')">根目录</a>';
+            
+            if (currentFolder) {
+                const pathParts = currentFolder.split('/');
+                let currentPath = '';
+                
+                for (let i = 0; i < pathParts.length; i++) {
+                    currentPath += (i > 0 ? '/' : '') + pathParts[i];
+                    html += ' / ';
+                    html += `<a onclick="navigateToFolder('${currentPath}')">${pathParts[i]}</a>`;
+                }
+            }
+            
+            breadcrumb.innerHTML = html;
+        }
+        
+        // 渲染文件列表
+        function renderFileList() {
+            const fileList = document.getElementById('fileList');
+            let html = '';
+            
+            // 添加返回上级目录按钮（如果不在根目录）
+            if (currentFolder) {
+                const parentFolder = currentFolder.includes('/') 
+                    ? currentFolder.substring(0, currentFolder.lastIndexOf('/'))
+                    : '';
+                    
+                html += `
+                    <div class="back-button" onclick="navigateToFolder('${parentFolder}')">
+                        <div class="item-name">
+                            <span>🔙</span>
+                            <span>返回上级目录</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 显示当前目录下的文件夹
+            const currentFolders = folderData[currentFolder] || [];
+            for (const folder of currentFolders) {
+                html += `
+                    <div class="folder-item" onclick="navigateToFolder('${folder.path}')">
+                        <div class="item-name">
+                            <span>📁</span>
+                            <span>${folder.name}</span>
+                        </div>
+                        <div class="item-stats">
+                            ${folder.lines} 行 (${folder.percentage.toFixed(1)}%)
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 显示当前目录下的文件
+            const currentFiles = fileData[currentFolder] || [];
+            for (const file of currentFiles) {
+                html += `
+                    <div class="file-item">
+                        <div class="item-name">
+                            <span>📄</span>
+                            <span>${file.name}</span>
+                        </div>
+                        <div class="item-stats">
+                            ${file.lines} 行 (${file.percentage.toFixed(1)}%)
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 如果目录为空
+            if (currentFolders.length === 0 && currentFiles.length === 0) {
+                html += `
+                    <div class="file-item">
+                        <div class="item-name" style="color: #666; font-style: italic;">
+                            <span>📭</span>
+                            <span>此目录为空</span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            fileList.innerHTML = html;
+        }
+        
+        // 初始化
+        function init() {
+            console.log('开始初始化...');
+            initializeData();
+            navigateToFolder('');
+            console.log('初始化完成');
+        }
+        
+        // 页面加载完成后初始化
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>
