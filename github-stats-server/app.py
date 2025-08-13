@@ -755,6 +755,6 @@ STATS_TEMPLATE = '''
 
 if __name__ == '__main__':
     print("GitHub Stats Server starting...")
-    print("Server will run on http://localhost:5001")
-    print("Health check: http://localhost:5001/health")
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    print("Server will run on http://localhost:5002")
+    print("Health check: http://localhost:5002/health")
+    app.run(debug=True, host='0.0.0.0', port=5002)
