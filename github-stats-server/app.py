@@ -4,7 +4,6 @@ import subprocess
 import os
 import tempfile
 import shutil
-import threading
 import time
 from collections import defaultdict
 import json
@@ -14,9 +13,7 @@ import re
 app = Flask(__name__)
 CORS(app)
 
-# 存储统计数据的缓存
-stats_cache = {}
-cache_lock = threading.Lock()
+# 移除缓存机制，每次都重新统计
 
 # 配置
 TEMP_DIR = tempfile.gettempdir()
@@ -54,22 +51,17 @@ def ensure_repos_dir():
     if not os.path.exists(REPOS_DIR):
         os.makedirs(REPOS_DIR)
 
-def clean_old_repos():
-    """清理超过1小时的旧仓库"""
+def clean_all_repos():
+    """清理所有旧仓库，确保每次都是全新的clone"""
     if not os.path.exists(REPOS_DIR):
         return
     
-    current_time = time.time()
-    for item in os.listdir(REPOS_DIR):
-        item_path = os.path.join(REPOS_DIR, item)
-        if os.path.isdir(item_path):
-            # 检查目录创建时间
-            if current_time - os.path.getctime(item_path) > 3600:  # 1小时
-                try:
-                    shutil.rmtree(item_path)
-                    print(f"Cleaned old repo: {item}")
-                except Exception as e:
-                    print(f"Failed to clean {item}: {e}")
+    try:
+        # 删除整个仓库目录
+        shutil.rmtree(REPOS_DIR)
+        print("Cleaned all old repos")
+    except Exception as e:
+        print(f"Failed to clean repos directory: {e}")
 
 def clone_repository(repo_url, target_dir):
     """克隆仓库到指定目录"""
@@ -291,7 +283,7 @@ def test_page():
 
 @app.route('/api/stats', methods=['POST'])
 def get_repository_stats():
-    """获取仓库统计信息"""
+    """获取仓库统计信息 - 每次都重新统计"""
     data = request.get_json()
     if not data or 'repoUrl' not in data:
         return jsonify({'error': '缺少仓库URL'}), 400
@@ -303,127 +295,94 @@ def get_repository_stats():
     if not owner or not repo:
         return jsonify({'error': '缺少仓库信息'}), 400
     
-    cache_key = f"{owner}/{repo}"
-    
-    # 检查缓存
-    with cache_lock:
-        if cache_key in stats_cache:
-            cache_data = stats_cache[cache_key]
-            # 如果缓存时间少于30分钟，直接返回
-            if time.time() - cache_data['timestamp'] < 1800:
-                return jsonify({
-                    'totalLines': cache_data['stats']['total_lines'],
-                    'totalFiles': cache_data['stats']['total_files'],
-                    'cached': True
-                })
-    
-    # 异步处理统计
-    def process_stats():
+    try:
+        # 每次都清理所有旧仓库
+        clean_all_repos()
         ensure_repos_dir()
-        clean_old_repos()
         
         # 创建临时目录
         repo_dir = os.path.join(REPOS_DIR, f"{owner}_{repo}_{int(time.time())}")
         
-        try:
-            # 克隆仓库
-            success, message = clone_repository(repo_url, repo_dir)
-            if not success:
-                with cache_lock:
-                    stats_cache[cache_key] = {
-                        'stats': {'error': message},
-                        'timestamp': time.time()
-                    }
-                return
-            
-            # 分析代码
-            stats = analyze_repository(repo_dir)
-            
-            # 缓存结果
-            with cache_lock:
-                stats_cache[cache_key] = {
-                    'stats': stats,
-                    'timestamp': time.time()
-                }
-            
-        except Exception as e:
-            with cache_lock:
-                stats_cache[cache_key] = {
-                    'stats': {'error': str(e)},
-                    'timestamp': time.time()
-                }
-        finally:
-            # 清理临时文件
-            if os.path.exists(repo_dir):
-                try:
-                    shutil.rmtree(repo_dir)
-                except:
-                    pass
-    
-    # 启动后台线程处理
-    thread = threading.Thread(target=process_stats)
-    thread.daemon = True
-    thread.start()
-    
-    # 立即返回处理中状态
-    return jsonify({
-        'totalLines': 0,
-        'totalFiles': 0,
-        'processing': True,
-        'message': '正在分析仓库，请稍候...'
-    })
+        # 克隆仓库
+        success, message = clone_repository(repo_url, repo_dir)
+        if not success:
+            return jsonify({'error': f'克隆失败: {message}'}), 500
+        
+        # 分析代码
+        stats = analyze_repository(repo_dir)
+        
+        # 立即清理临时文件
+        if os.path.exists(repo_dir):
+            try:
+                shutil.rmtree(repo_dir)
+            except:
+                pass
+        
+        # 返回统计结果
+        return jsonify({
+            'totalLines': stats['total_lines'],
+            'totalFiles': stats['total_files'],
+            'processing': False,
+            'cached': False
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'统计失败: {str(e)}'}), 500
 
 @app.route('/api/stats/status/<owner>/<repo>')
 def get_stats_status(owner, repo):
-    """检查统计状态"""
-    cache_key = f"{owner}/{repo}"
-    
-    with cache_lock:
-        if cache_key in stats_cache:
-            cache_data = stats_cache[cache_key]
-            stats = cache_data['stats']
-            
-            if 'error' in stats:
-                return jsonify({'error': stats['error']}), 500
-            
-            return jsonify({
-                'totalLines': stats['total_lines'],
-                'totalFiles': stats['total_files'],
-                'ready': True
-            })
-    
-    return jsonify({'ready': False, 'message': '统计正在进行中...'})
+    """检查统计状态 - 不再使用缓存"""
+    return jsonify({'ready': False, 'message': '请直接调用 /api/stats 接口获取最新统计'})
 
 @app.route('/stats')
 def stats_page():
-    """统计详情页面"""
+    """统计详情页面 - 实时重新统计"""
     owner = request.args.get('owner')
     repo = request.args.get('repo')
+    repo_url = request.args.get('repo_url')
     
     if not owner or not repo:
         return "缺少仓库参数", 400
     
-    cache_key = f"{owner}/{repo}"
+    if not repo_url:
+        repo_url = f"https://github.com/{owner}/{repo}.git"
     
-    with cache_lock:
-        if cache_key not in stats_cache:
-            return render_template_string(LOADING_TEMPLATE, owner=owner, repo=repo)
+    try:
+        # 每次都重新统计
+        clean_all_repos()
+        ensure_repos_dir()
         
-        cache_data = stats_cache[cache_key]
-        stats = cache_data['stats']
+        # 创建临时目录
+        repo_dir = os.path.join(REPOS_DIR, f"{owner}_{repo}_{int(time.time())}")
         
-        if 'error' in stats:
+        # 克隆仓库
+        success, message = clone_repository(repo_url, repo_dir)
+        if not success:
             return render_template_string(ERROR_TEMPLATE, 
-                                        owner=owner, repo=repo, error=stats['error'])
-    
-    # 将stats转换为Base64编码的JSON，避免转义问题
-    import json
-    import base64
-    stats_json = json.dumps(stats, ensure_ascii=True, separators=(',', ':'))
-    stats_b64 = base64.b64encode(stats_json.encode('utf-8')).decode('ascii')
-    
-    return render_template_string(STATS_TEMPLATE, 
-                                owner=owner, repo=repo, stats=stats, stats_b64=stats_b64)
+                                        owner=owner, repo=repo, error=message)
+        
+        # 分析代码
+        stats = analyze_repository(repo_dir)
+        
+        # 立即清理临时文件
+        if os.path.exists(repo_dir):
+            try:
+                shutil.rmtree(repo_dir)
+            except:
+                pass
+        
+        # 将stats转换为Base64编码的JSON，避免转义问题
+        import json
+        import base64
+        stats_json = json.dumps(stats, ensure_ascii=True, separators=(',', ':'))
+        stats_b64 = base64.b64encode(stats_json.encode('utf-8')).decode('ascii')
+        
+        return render_template_string(STATS_TEMPLATE, 
+                                    owner=owner, repo=repo, stats=stats, stats_b64=stats_b64)
+                                    
+    except Exception as e:
+        return render_template_string(ERROR_TEMPLATE, 
+                                    owner=owner, repo=repo, error=str(e))
 
 # HTML模板
 LOADING_TEMPLATE = '''
@@ -784,6 +743,6 @@ STATS_TEMPLATE = '''
 
 if __name__ == '__main__':
     print("GitHub Stats Server starting...")
-    print("Server will run on http://localhost:5000")
-    print("Health check: http://localhost:5000/health")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    print("Server will run on http://localhost:5001")
+    print("Health check: http://localhost:5001/health")
+    app.run(debug=True, host='0.0.0.0', port=5001)
