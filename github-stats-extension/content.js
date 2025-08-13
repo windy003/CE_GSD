@@ -3,6 +3,7 @@ class GitHubStatsWidget {
     this.serverUrl = null;
     this.currentRepo = null;
     this.widget = null;
+    this.autoHideTimer = null;
     this.init();
   }
 
@@ -124,6 +125,12 @@ class GitHubStatsWidget {
   updateWidgetContent(state, data = null) {
     if (!this.widget) return;
 
+    // 清除之前的自动隐藏定时器
+    if (this.autoHideTimer) {
+      clearTimeout(this.autoHideTimer);
+      this.autoHideTimer = null;
+    }
+
     const content = {
       loading: `
         <div class="title">
@@ -165,6 +172,31 @@ class GitHubStatsWidget {
     };
 
     this.widget.innerHTML = content[state] || content.error;
+
+    // 如果是成功状态，设置5秒后自动隐藏
+    if (state === 'success') {
+      this.autoHideTimer = setTimeout(() => {
+        this.hideWidget();
+      }, 5000);
+    }
+  }
+
+  hideWidget() {
+    if (this.widget) {
+      this.widget.classList.add('animate-out');
+      setTimeout(() => {
+        if (this.widget) {
+          this.widget.remove();
+          this.widget = null;
+        }
+      }, 300); // 等待动画完成
+    }
+    
+    // 清除定时器
+    if (this.autoHideTimer) {
+      clearTimeout(this.autoHideTimer);
+      this.autoHideTimer = null;
+    }
   }
 
   async fetchStats() {

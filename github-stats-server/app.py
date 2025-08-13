@@ -66,14 +66,26 @@ def clean_all_repos():
 def clone_repository(repo_url, target_dir):
     """克隆仓库到指定目录"""
     try:
+        # 确保目标目录不存在
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir)
+        
+        # 创建父目录
+        os.makedirs(os.path.dirname(target_dir), exist_ok=True)
+        
         # 使用浅克隆减少下载时间
         cmd = ['git', 'clone', '--depth', '1', repo_url, target_dir]
+        print(f"Executing: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        
+        print(f"Git clone return code: {result.returncode}")
+        print(f"Git clone stdout: {result.stdout}")
+        print(f"Git clone stderr: {result.stderr}")
         
         if result.returncode == 0:
             return True, "克隆成功"
         else:
-            return False, f"克隆失败: {result.stderr}"
+            return False, f"克隆失败: {result.stderr.strip()}"
     except subprocess.TimeoutExpired:
         return False, "克隆超时"
     except Exception as e:

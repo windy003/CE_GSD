@@ -80,8 +80,23 @@
   }
 }
 
+@keyframes slideOutRight {
+  from {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-50%) translateX(100%);
+  }
+}
+
 .github-stats-float.animate-in {
   animation: slideInRight 0.3s ease-out;
+}
+
+.github-stats-float.animate-out {
+  animation: slideOutRight 0.3s ease-in;
 }
 
 /* 隐藏状态 */
